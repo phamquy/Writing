@@ -16,7 +16,7 @@ The focus is on approaches that work well on a **laptop or personal device**.
 
 Assume you have:
 
-* A local LLM running on your laptop
+* A local LLM[^1] running on your laptop
 * Trained only on general knowledge (roughly high‑school / early undergraduate level)
 
 Goal:
@@ -482,3 +482,5 @@ This provides:
 * Strong reasoning capability
 
 This architecture reflects the dominant practical design used today.
+
+[^1]: Large Language Model
