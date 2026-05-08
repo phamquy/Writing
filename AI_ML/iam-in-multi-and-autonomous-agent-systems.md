@@ -1,3 +1,7 @@
+---
+icon: brain-circuit
+---
+
 # IAM in Autonomous Multi-Agent Systems (AMAS)
 
 > *Working notes — May 2026. Identity is now the load-bearing wall of agent security. Every other control (sandboxing, prompt-injection defense, tool-use policy) eventually depends on the question: "who is acting, on whose behalf, and with what authority right now?"*
