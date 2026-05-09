@@ -105,6 +105,14 @@ The classic confused-deputy bug — a privileged intermediary tricked into actin
 
 Each hop (A→B→C→tool) is a chance for intent to shift. "Help me with the budget" gets refined into "fetch FY26 spend," then "join with HR roster," then "email the join to the CFO." Every step is plausible; none was explicitly consented to. There is, today, no widely deployed way to bound *how far* a delegation may travel or *what it may become* along the way.
 
+Three things make this especially dangerous:
+
+- **No single hop looks wrong.** Each refinement is a reasonable interpretation of the previous one, so neither human review nor a per-call policy check has a clean signal to fire on. The harm is *cumulative semantic drift*, not any one violation — and most authorization systems only evaluate one call at a time.
+- **Consent doesn't compose.** The user consented to "help with the budget," not to "email PII to the CFO." But every downstream agent sees only the *immediately upstream* request, which looks legitimate in isolation. Authority flows forward; the original consent boundary doesn't — so by hop 3 the agent is acting with the user's credentials on a task the user never approved.
+- **It's the confused-deputy problem, compounded.** §4.1 already establishes that an agent holds the union of its tool credentials. Add multi-hop delegation and you get *transitive* confused deputy: agent C uses A's authority to do something A would have refused, because each intermediary only enforced its local view of intent. There is no equivalent of OAuth's `aud`/`scope` that travels with the *task* and narrows on each hop.
+
+The deeper structural point: classical IAM scopes bound *what tools you can call*; nothing bounds *how far a task may evolve from its original intent*. That is a missing primitive, not a missing config.
+
 ### 4.3 Static credentials don't survive contact with autonomy
 
 API keys, long-lived service account tokens, and `.env` secrets were acceptable in a world where a leak meant a human attacker had hours to exploit it. An over-privileged agent token leaked into a model's context, or into a log, becomes a machine-speed kill chain — no malware, no C2, just an LLM with a credential and a broad scope.
