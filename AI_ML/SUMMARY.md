@@ -2,9 +2,9 @@
 
 ## A2A Protocol
 
-* [Page 2](README.md)
-  * [A2A Protocol: What It Is, What It Isn't, and How to Fill the Gaps](a2a-protocol/page-2/a2a-protoco-what-it-cant.md)
+* [A2A Protocol: What It Is, What It Isn't, and How to Fill the Gaps](README.md)
+* [A2A In-Task Authentication: The Secondary Credentials Flow](a2a-protocol/a2a-in-task-authentication-the-secondary-credentials-flow.md)
 
-***
+## Misc
 
-* [Domain Specialization for a Local LLM](<README (1).md>)
+* [Domain Specialization for a Local LLM](misc/readme.md)
