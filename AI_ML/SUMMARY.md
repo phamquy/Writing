@@ -8,3 +8,4 @@
 ## Misc
 
 * [Domain Specialization for a Local LLM](misc/domain-specialization-llm.md)
+* [IAM in autonomous multi agents systen](misc/iam-in-multi-and-autonomous-agent-systems.md)
