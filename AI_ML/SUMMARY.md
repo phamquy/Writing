@@ -10,3 +10,4 @@
 * [Domain Specialization for a Local LLM](misc/domain-specialization-llm.md)
 * [IAM in autonomous multi agents systen](misc/iam-in-multi-and-autonomous-agent-systems.md)
 * [Loop engineering](misc/loop-engineering.md)
+* [Use Claude Code memory and context efficiently](misc/use-claude-memory-context-efficiently.md)
