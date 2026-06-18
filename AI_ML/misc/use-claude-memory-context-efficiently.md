@@ -1,3 +1,7 @@
+---
+icon: brain-circuit
+---
+
 # Using Context & Memory Efficiently in Claude Code
 
 A practical guide to distributing knowledge across a team, loading it on demand,
