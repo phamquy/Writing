@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rate limiter lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --sunk:#e7ebef; --grid:#dbe2e8; --border:#ccd6de;
+  --text:#14202b; --muted:#546878; --dim:#7e8f9d;
+  --ok:#0f9e86; --rej:#d0442f; --inc:#5b748d; --am:#b3790c;
+  --shadow:0 1px 0 rgba(20,32,43,.06);
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0c1117; --panel:#131b23; --sunk:#0a0f14; --grid:#1e2a35; --border:#243240;
+    --text:#dde6ed; --muted:#8ea0b1; --dim:#64788a;
+    --ok:#3ed0b0; --rej:#ff7462; --inc:#8aa0b8; --am:#f0b45a;
+    --shadow:0 1px 0 rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0c1117; --panel:#131b23; --sunk:#0a0f14; --grid:#1e2a35; --border:#243240;
+  --text:#dde6ed; --muted:#8ea0b1; --dim:#64788a;
+  --ok:#3ed0b0; --rej:#ff7462; --inc:#8aa0b8; --am:#f0b45a;
+  --shadow:0 1px 0 rgba(0,0,0,.35);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px);-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:15px;line-height:1.55;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
+h1{font-size:20px;font-weight:600;letter-spacing:-.01em;margin:0}
+h2{font-size:16px;font-weight:600;margin:0 0 6px}
+h3{font-size:13px;font-weight:600;margin:0 0 6px;color:var(--muted)}
+p{margin:0 0 10px;max-width:72ch}
+a{color:inherit}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+
+header{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:baseline;margin-bottom:16px}
+header .sub{color:var(--muted);font-size:14px;max-width:62ch}
+
+/* channel selector */
+.tabs{display:flex;flex-wrap:wrap;gap:2px;background:var(--sunk);border:1px solid var(--border);
+  border-radius:9px;padding:3px;margin-bottom:14px}
+.tabs button{
+  flex:1 1 auto;min-width:118px;appearance:none;border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:13.5px;padding:8px 10px;border-radius:6px;cursor:pointer;white-space:nowrap;
+}
+.tabs button:hover{color:var(--text)}
+.tabs button[aria-selected="true"]{background:var(--panel);color:var(--text);box-shadow:var(--shadow);font-weight:500}
+.tabs button:focus-visible{outline:2px solid var(--am);outline-offset:1px}
+
+.bar{
+  display:flex;flex-wrap:wrap;gap:14px 18px;align-items:center;
+  background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;
+}
+.bar .grp{display:flex;align-items:center;gap:8px}
+.bar label{font-size:12.5px;color:var(--muted)}
+select,button.btn{
+  font:inherit;font-size:13px;color:var(--text);background:var(--sunk);
+  border:1px solid var(--border);border-radius:7px;padding:5px 9px;cursor:pointer;
+}
+button.btn:hover,select:hover{border-color:var(--dim)}
+button.btn:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--am);outline-offset:1px}
+button.btn[data-on="true"]{background:var(--am);border-color:var(--am);color:#12171d}
+input[type=range]{accent-color:var(--am);width:100%;height:20px}
+
+.layout{display:grid;grid-template-columns:minmax(0,1.42fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:920px){.layout{grid-template-columns:1fr}}
+
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow)}
+.panel .hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:9px 14px;border-bottom:1px solid var(--border)}
+.panel .hd .t{font-size:12.5px;color:var(--muted)}
+.panel .bd{padding:14px}
+canvas{display:block;width:100%}
+#mech{height:300px}
+#chart{height:210px}
+@media (max-width:560px){#mech{height:250px}#chart{height:180px}}
+
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--muted);padding:8px 14px 12px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-top:1px solid var(--border)}
+.stats div{padding:9px 12px;border-right:1px solid var(--border)}
+.stats div:last-child{border-right:0}
+.stats .k{font-size:11.5px;color:var(--muted);display:block}
+.stats .v{font-size:17px;font-weight:500}
+@media (max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}.stats div{border-bottom:1px solid var(--border)}}
+
+.ctrl{margin-bottom:14px}
+.ctrl .row{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;gap:10px}
+.ctrl .row .val{font-size:13px;color:var(--am)}
+.ctrl .note{font-size:12px;color:var(--dim);margin-top:1px}
+
+.section+.section{margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+ul.tight{margin:0;padding-left:17px}
+ul.tight li{margin-bottom:5px}
+ul.tight li::marker{color:var(--dim)}
+.verdict{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:520px){.verdict{grid-template-columns:1fr}}
+.verdict h3 span{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px}
+pre.code{
+  background:var(--sunk);border:1px solid var(--border);border-radius:8px;
+  padding:11px 12px;margin:0;overflow-x:auto;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;line-height:1.65;color:var(--text);
+}
+pre.code .c{color:var(--dim)}
+pre.code .k{color:var(--am)}
+
+.cmp{display:grid;gap:10px}
+.cmprow{display:grid;grid-template-columns:132px minmax(0,1fr) 92px;gap:10px;align-items:center}
+.cmprow .nm{font-size:13px}
+.cmprow .nm small{display:block;color:var(--dim);font-size:11.5px}
+.cmprow canvas{height:74px}
+.cmprow .sc{text-align:right;font-size:12.5px;color:var(--muted)}
+.cmprow .sc b{display:block;font-size:17px;font-weight:500;color:var(--text)}
+@media (max-width:640px){.cmprow{grid-template-columns:1fr auto}.cmprow canvas{grid-column:1/-1}}
+
+footer{margin-top:26px;color:var(--dim);font-size:12.5px;max-width:74ch}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Rate limiter lab</h1>
+  <span class="sub">Same arrival stream, five admission policies. Tune the parameters and watch what reaches the backend.</span>
+</header>
+
+<div class="tabs" role="tablist" id="tabs"></div>
+
+<div class="bar">
+  <div class="grp">
+    <label for="pattern">Traffic</label>
+    <select id="pattern">
+      <option value="poisson">Random arrivals (Poisson)</option>
+      <option value="steady">Steady stream</option>
+      <option value="bursty">Bursty (on/off)</option>
+      <option value="ramp">Slow ramp up and down</option>
+    </select>
+  </div>
+  <div class="grp" style="flex:1 1 200px;min-width:190px">
+    <label for="rate" style="white-space:nowrap">Arrival rate</label>
+    <input id="rate" type="range" min="1" max="60" step="1" value="16">
+    <span class="mono" id="rateV" style="width:62px;text-align:right">16 rps</span>
+  </div>
+  <div class="grp">
+    <button class="btn" id="burst">Send a burst</button>
+    <button class="btn" id="play">Pause</button>
+    <select id="speed" aria-label="Simulation speed">
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+    </select>
+    <button class="btn" id="reset">Reset counters</button>
+  </div>
+</div>
+
+<div class="layout">
+  <div>
+    <div class="panel" id="mechPanel">
+      <div class="hd"><h2 id="mechTitle">Fixed window</h2><span class="t" id="clock">t = 0.0 s</span></div>
+      <canvas id="mech"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--inc)"></i>arriving</span>
+        <span><i style="background:var(--ok)"></i>admitted</span>
+        <span><i style="background:var(--rej)"></i>rejected</span>
+        <span><i style="background:var(--am)"></i>limiter state</span>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px" id="chartPanel">
+      <div class="hd"><h2>Traffic, last 15 seconds</h2><span class="t">requests per second</span></div>
+      <canvas id="chart"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--inc)"></i>offered load</span>
+        <span><i style="background:var(--ok)"></i>admitted (what the backend sees)</span>
+        <span><i style="background:var(--rej)"></i>rejected</span>
+        <span><i style="background:var(--am);height:0;border-top:2px dashed var(--am)"></i>configured ceiling</span>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="panel hidden" style="margin-top:0" id="cmpPanel">
+      <div class="hd"><h2>All five on one stream</h2><span class="t" id="cmpClock">admitted rate vs offered load</span></div>
+      <div class="bd cmp" id="cmpRows"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="bd" id="side"></div>
+  </div>
+</div>
+
+<footer id="foot"></footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $ = s => document.querySelector(s);
+const ce = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e;};
+const esc = s => String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
+
+/* ---------------------------------------------------------------- content */
+const META = {
+  fixed:{
+    name:"Fixed window", short:"Fixed", tag:"One counter per clock-aligned window.",
+    how:[
+      "Divide time into fixed windows (every 60s on the minute, say). Keep one integer per key. Increment on each request; if the counter is already at the limit, reject. When the clock crosses a window boundary the counter resets to zero.",
+      "In Redis this is one round trip: <code>INCR key:{minute}</code> with an <code>EXPIRE</code> on first write. That is the whole implementation."
+    ],
+    pros:["O(1) memory and one atomic op per request","Trivially correct under concurrency","Counter resets are free — no cleanup job"],
+    cons:["Admits up to 2× the limit around a boundary: the limit spent at the end of one window plus a full limit at the start of the next","Boundaries are aligned across all clients, so retries and cron jobs synchronise into a spike at the top of the minute","No notion of how traffic was distributed inside the window"],
+    uses:["Coarse quotas where 2× for a second doesn't hurt — daily and monthly API caps","Billing tiers counted per calendar period","A cheap first line in front of a more precise limiter"],
+    tip:"Set the traffic to Bursty and watch the counter bar: two windows in a row can each pass a full limit back to back.",
+    code:`w = floor(now / WINDOW)
+<span class="k">if</span> w != current_window:
+    current_window = w
+    count = 0
+<span class="k">if</span> count &lt; LIMIT:
+    count += 1
+    <span class="k">return</span> ALLOW
+<span class="k">return</span> REJECT`,
+    params:[
+      {k:"limit",label:"Limit per window",min:1,max:60,step:1,unit:" req"},
+      {k:"window",label:"Window length",min:0.5,max:6,step:0.5,unit:" s"}
+    ]
+  },
+  log:{
+    name:"Sliding window log", short:"Sliding log", tag:"Keep every timestamp, count what is still inside.",
+    how:[
+      "Store the timestamp of each admitted request in a sorted set per key. On each request, drop everything older than <code>now - WINDOW</code>, then admit only if fewer than <code>LIMIT</code> entries remain.",
+      "This is the exact answer to “no more than N requests in any WINDOW”. Every other algorithm here is an approximation of it that trades accuracy for memory or CPU."
+    ],
+    pros:["Exactly correct for any window position — no boundary artifact","Easy to explain to an auditor and to test","The log doubles as a record of when the limit was hit"],
+    cons:["Memory is O(limit) timestamps per key — a 10k/min limit across a million keys is not viable","Trimming the set costs CPU on every call (ZREMRANGEBYSCORE) and the write is not a single op","Rejected requests still cost you a round trip and a trim"],
+    uses:["Low volume, high value endpoints: login, password reset, OTP send, payment submission","Per-account abuse limits where the limit is small (5 per hour)","Anywhere an off-by-a-few admission is a security problem"],
+    tip:"Watch the dots leaving the shaded window on the left: a slot frees up exactly one window after it was used, never in a batch.",
+    code:`log.trim_before(now - WINDOW)
+<span class="k">if</span> log.size &lt; LIMIT:
+    log.add(now)
+    <span class="k">return</span> ALLOW
+<span class="k">return</span> REJECT   <span class="c"># retry after log.oldest + WINDOW</span>`,
+    params:[
+      {k:"limit",label:"Limit per window",min:1,max:60,step:1,unit:" req"},
+      {k:"window",label:"Window length",min:0.5,max:6,step:0.5,unit:" s"}
+    ]
+  },
+  counter:{
+    name:"Sliding window counter", short:"Sliding counter", tag:"Two counters and a weighted guess.",
+    how:[
+      "Keep the count for the current fixed window and the one before it. Estimate the rolling count by weighting the previous window by the fraction of it the sliding window still covers:",
+      "<code>estimate = prev × (1 − elapsed / WINDOW) + current</code>",
+      "Two integers per key gives you most of the accuracy of the log at the cost of the fixed window. This is what large gateways run in production."
+    ],
+    pros:["Fixed memory: two counters per key, no per-request entries","Kills the fixed window's boundary doubling","Cheap enough to run per tenant at high cardinality"],
+    cons:["It is an estimate — it assumes the previous window's traffic was spread evenly","A late spike in the previous window is under-counted, so a real burst can slip through; an early spike is over-counted, so legitimate traffic gets rejected","Error is bounded but not zero, which makes exact-limit contracts awkward"],
+    uses:["Default choice for public API gateways and CDN edge limits","Per-tenant quotas in multi-tenant SaaS","Anywhere the log's memory cost is the blocker but the fixed window's burst is not acceptable"],
+    tip:"Compare the estimate against the true rolling count in the readout — the gap is the algorithm's error, and it grows with how uneven the traffic is.",
+    code:`roll_windows(now)
+elapsed = now - current_start
+weight  = (WINDOW - elapsed) / WINDOW
+est = prev_count * weight + current_count
+<span class="k">if</span> est &lt; LIMIT:
+    current_count += 1
+    <span class="k">return</span> ALLOW
+<span class="k">return</span> REJECT`,
+    params:[
+      {k:"limit",label:"Limit per window",min:1,max:60,step:1,unit:" req"},
+      {k:"window",label:"Window length",min:0.5,max:6,step:0.5,unit:" s"}
+    ]
+  },
+  token:{
+    name:"Token bucket", short:"Token bucket", tag:"Burst up to capacity, sustain at the refill rate.",
+    how:[
+      "A bucket holds up to <code>CAPACITY</code> tokens and refills at <code>RATE</code> tokens per second. Each request takes one token; if the bucket is empty the request is rejected (or waits, if you want a shaper rather than a limiter).",
+      "You never need a timer: store <code>tokens</code> and <code>last_refill</code>, and compute the refill lazily on the next request. Capacity and rate are separate knobs — burst tolerance and sustained throughput are tuned independently."
+    ],
+    pros:["Forgives bursts from idle clients, which is how real clients actually behave","Two numbers per key, one lazy update, easy to do atomically in a Lua script","Degrades to a pure rate limit by setting capacity to 1"],
+    cons:["A full bucket still hits the backend at line rate — capacity is your real worst case, not the rate","Two parameters to get wrong; a big capacity quietly undoes the limit","Clients that poll in lockstep can all drain their buckets simultaneously"],
+    uses:["Cloud provider API throttling (this is what AWS and GCP expose as burst + sustained)","Client-side retry and egress budgets — golang.org/x/time/rate is a token bucket","Per-user quotas where occasional bursts are the point, not an attack"],
+    tip:"Let it idle with a low arrival rate, then hit Send a burst: the backlog of tokens is spent instantly, then output falls to the refill rate.",
+    code:`now_tokens = min(CAPACITY,
+    tokens + (now - last) * RATE)
+last = now
+<span class="k">if</span> now_tokens &gt;= 1:
+    tokens = now_tokens - 1
+    <span class="k">return</span> ALLOW
+tokens = now_tokens
+<span class="k">return</span> REJECT`,
+    params:[
+      {k:"capacity",label:"Bucket capacity (burst)",min:1,max:40,step:1,unit:" tokens"},
+      {k:"refill",label:"Refill rate",min:1,max:40,step:1,unit:" tok/s"}
+    ]
+  },
+  leaky:{
+    name:"Leaky bucket", short:"Leaky bucket", tag:"A queue that drains at a constant rate.",
+    how:[
+      "Requests enter a fixed-size FIFO. The queue drains at a constant <code>LEAK</code> rate, so the downstream sees a flat line no matter what the input looks like. If the queue is full on arrival, the request is dropped.",
+      "This is a shaper, not just a limiter: admitted requests are delayed rather than passed through. Token bucket smooths the average; leaky bucket smooths the instantaneous rate."
+    ],
+    pros:["Output rate is perfectly constant — the strongest guarantee for a fragile downstream","The queue absorbs short bursts instead of rejecting them","Drop policy and depth are explicit, tunable dials"],
+    cons:["Adds latency, and a deep queue adds a lot of it — watch the wait time readout","No burst pass-through: an idle bucket still releases at the leak rate","A full queue is backpressure you are hiding from the caller; you need a deadline or the work is stale by the time it drains"],
+    uses:["Egress to a third party with a contractual RPS ceiling","SMS, email and push pipelines where smoothing beats rejecting","Shaping writes into a database or legacy system that falls over above a known rate"],
+    tip:"Deepen the queue and the rejection count drops while the wait time climbs. That trade is the whole design decision.",
+    code:`<span class="c"># on arrival</span>
+<span class="k">if</span> queue.size &lt; DEPTH:
+    queue.push(req); <span class="k">return</span> QUEUED
+<span class="k">return</span> REJECT
+
+<span class="c"># drain loop, continuous</span>
+credit += elapsed * LEAK
+<span class="k">while</span> credit &gt;= 1 <span class="k">and</span> queue:
+    credit -= 1; send(queue.pop())`,
+    params:[
+      {k:"depth",label:"Queue depth",min:1,max:40,step:1,unit:" slots"},
+      {k:"leak",label:"Leak rate",min:1,max:40,step:1,unit:" req/s"}
+    ]
+  }
+};
+const ORDER = ["fixed","log","counter","token","leaky"];
+
+/* -------------------------------------------------------------- app state */
+const P = {
+  fixed:{limit:12,window:2},
+  log:{limit:12,window:2},
+  counter:{limit:12,window:2},
+  token:{capacity:12,refill:6},
+  leaky:{depth:12,leak:6},
+  compare:{limit:12,window:2}
+};
+const S = {
+  algo:"fixed", running:true, speed:1, pattern:"poisson", rate:16,
+  t:0, phase:0, injected:0
+};
+if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) S.running = false;
+
+/* ------------------------------------------------------------ limiter set */
+function fixedLimiter(gp){
+  let start=-1,count=0;
+  return {
+    reset(){start=-1;count=0;},
+    allow(t){const W=gp().window*1000,s=Math.floor(t/W)*W;
+      if(s!==start){start=s;count=0;}
+      if(count<gp().limit){count++;return true;} return false;},
+    view(t){const W=gp().window*1000,s=Math.floor(t/W)*W;
+      if(s!==start){return{start:s,count:0};} return{start:s,count};}
+  };
+}
+function logLimiter(gp){
+  let log=[];
+  return {
+    reset(){log=[];},
+    trim(t){const W=gp().window*1000;while(log.length&&log[0]<=t-W)log.shift();},
+    allow(t){this.trim(t);if(log.length<gp().limit){log.push(t);return true;}return false;},
+    view(t){this.trim(t);return{log};}
+  };
+}
+function counterLimiter(gp){
+  let curStart=-1,cur=0,prev=0;
+  function roll(t,W){
+    const s=Math.floor(t/W)*W;
+    if(curStart<0){curStart=s;cur=0;prev=0;return;}
+    if(s!==curStart){prev=(s-curStart===W)?cur:0;cur=0;curStart=s;}
+  }
+  return {
+    reset(){curStart=-1;cur=0;prev=0;},
+    allow(t){const W=gp().window*1000;roll(t,W);
+      const w=(W-(t-curStart))/W,est=prev*w+cur;
+      if(est<gp().limit){cur++;return true;}return false;},
+    view(t){const W=gp().window*1000;roll(t,W);
+      const w=(W-(t-curStart))/W;return{W,curStart,cur,prev,weight:w,est:prev*w+cur};}
+  };
+}
+function tokenLimiter(gp){
+  let tokens=gp().capacity,last=0;
+  return {
+    reset(){tokens=gp().capacity;last=S.t;},
+    refill(t){const p=gp();tokens=Math.min(p.capacity,tokens+(t-last)/1000*p.refill);last=t;},
+    allow(t){this.refill(t);if(tokens>=1){tokens-=1;return true;}return false;},
+    view(t){this.refill(t);return{tokens,capacity:gp().capacity};}
+  };
+}
+function leakyLimiter(gp,onRelease){
+  let q=[],credit=0,last=0;
+  return {
+    reset(){q=[];credit=0;last=S.t;},
+    allow(t,payload){ // returns true = queued
+      if(q.length<gp().depth){q.push({t,payload});return true;} return false;},
+    drain(t){
+      credit+=(t-last)/1000*gp().leak;last=t;
+      while(credit>=1&&q.length){credit-=1;const it=q.shift();onRelease&&onRelease(it,t);}
+      if(!q.length)credit=Math.min(credit,1);
+    },
+    view(){return{q};},
+    queue(){return q;}
+  };
+}
+const gp = k => () => P[k];
+
+let L = {};
+function buildLimiters(){
+  L = {
+    fixed:fixedLimiter(gp("fixed")),
+    log:logLimiter(gp("log")),
+    counter:counterLimiter(gp("counter")),
+    token:tokenLimiter(gp("token")),
+    leaky:leakyLimiter(gp("leaky"),onLeakRelease)
+  };
+  Object.values(L).forEach(l=>l.reset());
+}
+
+/* comparison set: same stream, parameters derived from one limit/window */
+const CP = {
+  fixed:()=>({limit:P.compare.limit,window:P.compare.window}),
+  log:()=>({limit:P.compare.limit,window:P.compare.window}),
+  counter:()=>({limit:P.compare.limit,window:P.compare.window}),
+  token:()=>({capacity:P.compare.limit,refill:P.compare.limit/P.compare.window}),
+  leaky:()=>({depth:P.compare.limit,leak:P.compare.limit/P.compare.window})
+};
+let CL={},CE={};
+function buildCompare(){
+  CL={
+    fixed:fixedLimiter(CP.fixed), log:logLimiter(CP.log), counter:counterLimiter(CP.counter),
+    token:tokenLimiter(CP.token),
+    leaky:leakyLimiter(CP.leaky,(it,t)=>{trim(CE.leaky.ok.push(t)&&CE.leaky.ok);})
+  };
+  Object.values(CL).forEach(l=>l.reset());
+  CE={}; ORDER.forEach(k=>CE[k]={ok:[],rej:[]});
+  CE.inc=[];
+}
+
+/* -------------------------------------------------------------- event log */
+let EV = {inc:[],ok:[],rej:[]};
+let N = {inc:0,ok:0,rej:0,lat:0,latN:0};
+function pushEv(a,t){a.push(t);if(a.length>6000)a.splice(0,3000);}
+function trim(a){if(a&&a.length>6000)a.splice(0,3000);return a;}
+function resetRun(){
+  EV={inc:[],ok:[],rej:[]}; N={inc:0,ok:0,rej:0,lat:0,latN:0};
+  particles.length=0; buildLimiters(); buildCompare();
+}
+
+/* -------------------------------------------------------------- particles */
+const particles=[];
+const TRANSIT=900; // virtual ms from spawn to the gate
+function geom(w,h){
+  const a=S.algo;
+  if(a==="token") return {laneY:h*0.66,gateX:w*0.46,bucket:{x:w*0.46-52,y:h*0.10,w:104,h:h*0.42},outY:h*0.66};
+  if(a==="leaky") return {laneY:h*0.22,gateX:w*0.46,bucket:{x:w*0.46-56,y:h*0.30,w:112,h:h*0.44},outY:h*0.80};
+  return {laneY:h*0.20,gateX:w*0.46,bucket:null,outY:h*0.20};
+}
+function spawn(t){
+  particles.push({x:0,y:0,state:"in",born:t,a:1,vy:0,slot:-1,tx:0,ty:0,released:0});
+  if(particles.length>400)particles.splice(0,120);
+}
+function onLeakRelease(it,t){
+  pushEv(EV.ok,t);N.ok++;N.lat+=(t-it.t);N.latN++;
+  if(it.payload){it.payload.state="ok";it.payload.released=t;}
+}
+
+/* --------------------------------------------------------------- arrivals */
+function arrivalRate(){
+  const r=S.rate;
+  switch(S.pattern){
+    case "bursty":{const c=(S.t%6000);return c<1500?r*3:r*0.18;}
+    case "ramp":{const c=(S.t%14000)/14000;const tri=c<0.5?c*2:(1-c)*2;return r*(0.15+1.85*tri);}
+    default:return r;
+  }
+}
+function generate(dt){
+  const lam=arrivalRate();
+  if(S.pattern==="steady"){
+    S.phase+=dt/1000*lam;
+    while(S.phase>=1){S.phase-=1;spawn(S.t);}
+  }else{
+    let exp=lam*dt/1000;
+    while(exp>0){const p=Math.min(1,exp);if(Math.random()<p)spawn(S.t);exp-=1;}
+  }
+  if(S.injected>0){const n=Math.min(S.injected,Math.ceil(dt/8));for(let i=0;i<n;i++)spawn(S.t);S.injected-=n;}
+}
+
+/* ------------------------------------------------------------ decide/step */
+function decide(p,t){
+  pushEv(EV.inc,t);N.inc++;
+  const a=S.algo;
+  if(a==="leaky"){
+    const queued=L.leaky.allow(t,p);
+    if(queued){p.state="q";}
+    else{p.state="rej";pushEv(EV.rej,t);N.rej++;}
+    return;
+  }
+  const ok=L[a].allow(t);
+  if(ok){p.state="ok";pushEv(EV.ok,t);N.ok++;}
+  else{p.state="rej";pushEv(EV.rej,t);N.rej++;}
+}
+function stepCompare(t){
+  CE.inc.push(t);if(CE.inc.length>6000)CE.inc.splice(0,3000);
+  for(const k of ORDER){
+    if(k==="leaky"){ if(!CL.leaky.allow(t,null)) trim(CE.leaky.rej.push(t)&&CE.leaky.rej); continue; }
+    if(CL[k].allow(t)) CE[k].ok.push(t); else CE[k].rej.push(t);
+    trim(CE[k].ok); trim(CE[k].rej);
+  }
+}
+
+/* --------------------------------------------------------------- rendering */
+let C={};
+function readColors(){
+  const cs=getComputedStyle(document.documentElement);
+  const g=n=>cs.getPropertyValue(n).trim();
+  C={panel:g("--panel"),sunk:g("--sunk"),grid:g("--grid"),border:g("--border"),
+     text:g("--text"),muted:g("--muted"),dim:g("--dim"),
+     ok:g("--ok"),rej:g("--rej"),inc:g("--inc"),am:g("--am")};
+}
+readColors();
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",readColors);
+new MutationObserver(readColors).observe(document.documentElement,{attributes:true,attributeFilter:["data-theme","style","class"]});
+
+function fit(cv){
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  const r=cv.getBoundingClientRect();
+  const w=Math.max(200,Math.round(r.width)),h=Math.max(60,Math.round(r.height));
+  if(cv._w!==w||cv._h!==h||cv._d!==dpr){
+    cv.width=w*dpr;cv.height=h*dpr;cv._w=w;cv._h=h;cv._d=dpr;
+  }
+  const ctx=cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  return {ctx,w,h};
+}
+function rr(ctx,x,y,w,h,r){
+  r=Math.min(r,Math.abs(w)/2,Math.abs(h)/2);
+  ctx.beginPath();ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+}
+function label(ctx,s,x,y,col,size,align){
+  ctx.fillStyle=col;ctx.font=(size||11)+'px "IBM Plex Mono",monospace';
+  ctx.textAlign=align||"left";ctx.textBaseline="middle";ctx.fillText(s,x,y);
+}
+
+/* mechanism canvas ------------------------------------------------------- */
+function drawMech(){
+  const cv=$("#mech");const {ctx,w,h}=fit(cv);
+  const G=geom(w,h);
+  const a=S.algo;
+
+  // lane
+  ctx.strokeStyle=C.grid;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,G.laneY+.5);ctx.lineTo(G.gateX,G.laneY+.5);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(G.gateX,G.outY+.5);ctx.lineTo(w,G.outY+.5);ctx.stroke();
+  label(ctx,"arriving",6,G.laneY-14,C.dim,11);
+  label(ctx,"to backend",w-6,G.outY-14,C.dim,11,"right");
+
+  // gate
+  if(a!=="leaky"){
+    ctx.fillStyle=C.am;ctx.globalAlpha=.16;
+    rr(ctx,G.gateX-4,G.laneY-26,8,52,3);ctx.fill();ctx.globalAlpha=1;
+    ctx.strokeStyle=C.am;ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(G.gateX,G.laneY-26);ctx.lineTo(G.gateX,G.laneY+26);ctx.stroke();
+  }
+
+  if(a==="fixed")   drawFixed(ctx,w,h,G);
+  if(a==="log")     drawLog(ctx,w,h,G);
+  if(a==="counter") drawCounter(ctx,w,h,G);
+  if(a==="token")   drawToken(ctx,w,h,G);
+  if(a==="leaky")   drawLeaky(ctx,w,h,G);
+
+  // particles
+  for(const p of particles){
+    const col = p.state==="in"?C.inc : p.state==="rej"?C.rej : p.state==="q"?C.am : C.ok;
+    ctx.globalAlpha=Math.max(0,Math.min(1,p.a));
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(p.x,p.y,3.4,0,7);ctx.fill();
+    ctx.globalAlpha=1;
+  }
+}
+function timeline(ctx,w,h,span,t,y0,y1){
+  const x0=16,x1=w-16;
+  const map=tt=>x0+(tt-(t-span))/span*(x1-x0);
+  ctx.strokeStyle=C.grid;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x0,y1+.5);ctx.lineTo(x1,y1+.5);ctx.stroke();
+  return {x0,x1,map};
+}
+function drawFixed(ctx,w,h,G){
+  const p=P.fixed,W=p.window*1000,span=W*3.2,t=S.t;
+  const y0=h*0.44,y1=h-34;
+  const T=timeline(ctx,w,h,span,t,y0,y1);
+  const v=L.fixed.view(t);
+  let s=Math.floor((t-span)/W)*W;
+  for(;s<=t;s+=W){
+    const xa=T.map(s),xb=T.map(s+W);
+    const cur = s===v.start;
+    ctx.fillStyle=cur?C.am:C.grid;ctx.globalAlpha=cur?.10:.35;
+    rr(ctx,Math.max(T.x0,xa),y0,Math.min(T.x1,xb)-Math.max(T.x0,xa),y1-y0,4);ctx.fill();ctx.globalAlpha=1;
+    ctx.strokeStyle=cur?C.am:C.border;ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(xa+.5,y0);ctx.lineTo(xa+.5,y1);ctx.stroke();
+    if(cur){
+      const frac=Math.min(1,v.count/p.limit);
+      const bw=Math.min(T.x1,xb)-Math.max(T.x0,xa);
+      ctx.fillStyle=frac>=1?C.rej:C.am;ctx.globalAlpha=.55;
+      rr(ctx,Math.max(T.x0,xa),y1-(y1-y0)*frac,bw,(y1-y0)*frac,4);ctx.fill();ctx.globalAlpha=1;
+      label(ctx,v.count+" / "+p.limit,(Math.max(T.x0,xa)+Math.min(T.x1,xb))/2,y0+14,C.text,12,"center");
+    }
+  }
+  // now marker
+  const xn=T.map(t);
+  ctx.strokeStyle=C.text;ctx.lineWidth=1;ctx.setLineDash([3,3]);
+  ctx.beginPath();ctx.moveTo(xn,y0-8);ctx.lineTo(xn,y1+6);ctx.stroke();ctx.setLineDash([]);
+  label(ctx,"counter resets on every boundary",T.x0,y1+18,C.dim,11);
+}
+function drawLog(ctx,w,h,G){
+  const p=P.log,W=p.window*1000,span=W*2.4,t=S.t;
+  const y0=h*0.44,y1=h-34;
+  const T=timeline(ctx,w,h,span,t,y0,y1);
+  const v=L.log.view(t);
+  const xa=T.map(t-W),xb=T.map(t);
+  ctx.fillStyle=C.am;ctx.globalAlpha=.12;rr(ctx,xa,y0,xb-xa,y1-y0,4);ctx.fill();ctx.globalAlpha=1;
+  ctx.strokeStyle=C.am;ctx.lineWidth=1.5;ctx.strokeRect(xa+.5,y0+.5,xb-xa,y1-y0);
+  const rows=Math.max(1,Math.ceil(p.limit/14));
+  v.log.forEach((ts,i)=>{
+    const x=T.map(ts);if(x<T.x0-4)return;
+    const r=i%rows, yy=y1-10-r*11 - ((i/ (rows))|0)*0;
+    ctx.fillStyle=C.ok;ctx.beginPath();ctx.arc(x,Math.max(y0+10,yy),3.2,0,7);ctx.fill();
+  });
+  label(ctx,v.log.length+" / "+p.limit+" timestamps inside the window",(xa+xb)/2,y0+14,C.text,12,"center");
+  label(ctx,"entries expire one by one, "+p.window+"s after use",T.x0,y1+18,C.dim,11);
+}
+function drawCounter(ctx,w,h,G){
+  const p=P.counter,t=S.t;
+  const v=L.counter.view(t);const W=v.W,span=W*2.6;
+  const y0=h*0.44,y1=h-34;
+  const T=timeline(ctx,w,h,span,t,y0,y1);
+  const cells=[{s:v.curStart-W,c:v.prev,wgt:v.weight,name:"previous"},{s:v.curStart,c:v.cur,wgt:1,name:"current"}];
+  for(const cell of cells){
+    const xa=Math.max(T.x0,T.map(cell.s)),xb=Math.min(T.x1,T.map(cell.s+W));
+    if(xb<=xa)continue;
+    ctx.fillStyle=C.grid;ctx.globalAlpha=.4;rr(ctx,xa,y0,xb-xa,y1-y0,4);ctx.fill();ctx.globalAlpha=1;
+    const frac=Math.min(1,cell.c/p.limit);
+    ctx.fillStyle=C.am;ctx.globalAlpha=cell.name==="previous"?.28:.55;
+    rr(ctx,xa,y1-(y1-y0)*frac,xb-xa,(y1-y0)*frac,4);ctx.fill();ctx.globalAlpha=1;
+    label(ctx,cell.name+": "+cell.c,(xa+xb)/2,y0+14,C.muted,11.5,"center");
+    if(cell.name==="previous"){
+      const cut=xa+(xb-xa)*(1-cell.wgt);
+      ctx.strokeStyle=C.am;ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+      ctx.beginPath();ctx.moveTo(cut,y0);ctx.lineTo(cut,y1);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle=C.am;ctx.globalAlpha=.10;ctx.fillRect(cut,y0,xb-cut,y1-y0);ctx.globalAlpha=1;
+      label(ctx,"× "+v.weight.toFixed(2),(cut+xb)/2,y1-12,C.am,11.5,"center");
+    }
+  }
+  const exact=(function(){ // true rolling count for comparison
+    let n=0;for(let i=EV.ok.length-1;i>=0;i--){if(EV.ok[i]<=t-W)break;n++;}return n;})();
+  label(ctx,"estimate "+v.est.toFixed(1)+" of "+p.limit+"   ·   true rolling count "+exact,T.x0,y1+18,C.dim,11);
+}
+function drawToken(ctx,w,h,G){
+  const p=P.token,v=L.token.view(S.t),b=G.bucket;
+  ctx.strokeStyle=C.border;ctx.lineWidth=1.5;rr(ctx,b.x,b.y,b.w,b.h,7);ctx.stroke();
+  ctx.fillStyle=C.sunk;rr(ctx,b.x,b.y,b.w,b.h,7);ctx.fill();
+  // tokens
+  const n=Math.floor(v.tokens),cap=p.capacity;
+  const perRow=Math.min(7,Math.max(4,Math.ceil(Math.sqrt(cap))));
+  const pad=10,cw=(b.w-pad*2)/perRow,rows=Math.ceil(cap/perRow);
+  const chS=Math.min(cw,(b.h-pad*2)/rows);
+  for(let i=0;i<cap;i++){
+    const r=Math.floor(i/perRow),c=i%perRow;
+    const x=b.x+pad+c*cw+cw/2, y=b.y+b.h-pad-chS/2-r*chS;
+    const filled=i<n;
+    ctx.beginPath();ctx.arc(x,y,Math.min(5.5,chS*0.32),0,7);
+    if(filled){ctx.fillStyle=C.am;ctx.fill();}
+    else{ctx.strokeStyle=C.grid;ctx.lineWidth=1;ctx.stroke();}
+  }
+  label(ctx,v.tokens.toFixed(1)+" of "+cap+" tokens",b.x+b.w/2,b.y-12,C.text,12,"center");
+  // drip
+  const fr=v.tokens-Math.floor(v.tokens);
+  ctx.strokeStyle=C.am;ctx.globalAlpha=.45;ctx.lineWidth=2;
+  ctx.beginPath();ctx.moveTo(b.x+b.w/2,b.y+b.h);ctx.lineTo(b.x+b.w/2,G.laneY-26);ctx.stroke();ctx.globalAlpha=1;
+  ctx.fillStyle=C.am;ctx.globalAlpha=.25+fr*0.6;
+  ctx.beginPath();ctx.arc(b.x+b.w/2,b.y+b.h+ (G.laneY-26-(b.y+b.h))*fr,3,0,7);ctx.fill();ctx.globalAlpha=1;
+  label(ctx,"+"+p.refill+" tokens/s",b.x+b.w+10,b.y+b.h/2,C.dim,11);
+  label(ctx,"each request spends one token",16,h-16,C.dim,11);
+}
+function drawLeaky(ctx,w,h,G){
+  const p=P.leaky,b=G.bucket,q=L.leaky.queue();
+  ctx.fillStyle=C.sunk;rr(ctx,b.x,b.y,b.w,b.h,7);ctx.fill();
+  ctx.strokeStyle=C.border;ctx.lineWidth=1.5;rr(ctx,b.x,b.y,b.w,b.h,7);ctx.stroke();
+  // fill level
+  const frac=Math.min(1,q.length/p.depth);
+  ctx.fillStyle=frac>=1?C.rej:C.am;ctx.globalAlpha=.18;
+  rr(ctx,b.x+1,b.y+b.h-(b.h-2)*frac,b.w-2,(b.h-2)*frac,6);ctx.fill();ctx.globalAlpha=1;
+  label(ctx,q.length+" of "+p.depth+" queued",b.x+b.w/2,b.y-12,C.text,12,"center");
+  // spout
+  ctx.strokeStyle=C.border;ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(b.x+b.w/2,b.y+b.h);ctx.lineTo(b.x+b.w/2,G.outY);ctx.stroke();
+  label(ctx,p.leak+" req/s out",b.x+b.w/2+10,(b.y+b.h+G.outY)/2,C.dim,11);
+  label(ctx,"overflow is dropped on arrival",16,h-16,C.dim,11);
+}
+
+/* traffic chart ---------------------------------------------------------- */
+const SPAN=15000,DT=250;
+function rateSeries(ev,tEnd,span,dt,smooth){
+  smooth=smooth||4;
+  const n=Math.ceil(span/dt),t0=tEnd-span,counts=new Array(n).fill(0);
+  for(let i=ev.length-1;i>=0;i--){
+    const t=ev[i];if(t<t0)break;
+    const k=Math.min(n-1,Math.floor((t-t0)/dt));if(k>=0)counts[k]++;
+  }
+  const out=new Array(n).fill(0);
+  for(let i=0;i<n;i++){
+    let s=0,c=0;
+    for(let j=Math.max(0,i-smooth+1);j<=i;j++){s+=counts[j];c++;}
+    out[i]=s/(c*dt)*1000;
+  }
+  return out;
+}
+function ceilingFor(a){
+  if(a==="token")return P.token.refill;
+  if(a==="leaky")return P.leaky.leak;
+  return P[a].limit/P[a].window;
+}
+function drawSeries(ctx,arr,x0,x1,yv,color,fill,width){
+  const n=arr.length;ctx.beginPath();
+  for(let i=0;i<n;i++){
+    const x=x0+(i/(n-1))*(x1-x0),y=yv(arr[i]);
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  }
+  if(fill){
+    ctx.lineTo(x1,yv(0));ctx.lineTo(x0,yv(0));ctx.closePath();
+    ctx.fillStyle=color;ctx.globalAlpha=.16;ctx.fill();ctx.globalAlpha=1;
+    ctx.beginPath();
+    for(let i=0;i<n;i++){const x=x0+(i/(n-1))*(x1-x0),y=yv(arr[i]);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+  }
+  ctx.strokeStyle=color;ctx.lineWidth=width||2;ctx.lineJoin="round";ctx.stroke();
+}
+function drawChart(){
+  const cv=$("#chart");const {ctx,w,h}=fit(cv);
+  const pad={l:38,r:12,t:12,b:22};
+  const x0=pad.l,x1=w-pad.r,y0=pad.t,y1=h-pad.b;
+  const inc=rateSeries(EV.inc,S.t,SPAN,DT),ok=rateSeries(EV.ok,S.t,SPAN,DT),rej=rateSeries(EV.rej,S.t,SPAN,DT);
+  const cap=ceilingFor(S.algo);
+  let max=Math.max(cap*1.35,...inc,...ok,...rej,5);
+  max=Math.ceil(max/5)*5;
+  const yv=v=>y1-(v/max)*(y1-y0);
+  // grid
+  ctx.strokeStyle=C.grid;ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){
+    const v=max*i/4,y=Math.round(yv(v))+.5;
+    ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();
+    label(ctx,String(Math.round(v)),x0-7,y,C.dim,11,"right");
+  }
+  for(let s=0;s<=15;s+=5){
+    const x=Math.round(x0+((15-s)/15)*(x1-x0))+.5;
+    label(ctx,s===0?"now":"-"+s+"s",x,y1+11,C.dim,11,"center");
+  }
+  // ceiling
+  ctx.strokeStyle=C.am;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+  ctx.beginPath();ctx.moveTo(x0,yv(cap));ctx.lineTo(x1,yv(cap));ctx.stroke();ctx.setLineDash([]);
+  label(ctx,cap.toFixed(cap<10?1:0)+" rps",x1-2,yv(cap)-9,C.am,11,"right");
+
+  drawSeries(ctx,inc,x0,x1,yv,C.inc,false,1.4);
+  drawSeries(ctx,rej,x0,x1,yv,C.rej,false,1.6);
+  drawSeries(ctx,ok,x0,x1,yv,C.ok,true,2.2);
+}
+
+/* comparison rows -------------------------------------------------------- */
+function drawCmpRow(cv,k){
+  const {ctx,w,h}=fit(cv);
+  const x0=4,x1=w-4,y0=6,y1=h-6;
+  const inc=rateSeries(CE.inc,S.t,SPAN,DT),ok=rateSeries(CE[k].ok,S.t,SPAN,DT);
+  const cap=P.compare.limit/P.compare.window;
+  let max=Math.max(cap*1.5,...inc,...ok,5);
+  const yv=v=>y1-(v/max)*(y1-y0);
+  ctx.strokeStyle=C.grid;ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x0,y1+.5);ctx.lineTo(x1,y1+.5);ctx.stroke();
+  ctx.strokeStyle=C.am;ctx.setLineDash([4,4]);ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x0,yv(cap));ctx.lineTo(x1,yv(cap));ctx.stroke();ctx.setLineDash([]);
+  drawSeries(ctx,inc,x0,x1,yv,C.inc,false,1.2);
+  drawSeries(ctx,ok,x0,x1,yv,C.ok,true,2);
+}
+
+/* ------------------------------------------------------------------- loop */
+let lastReal=performance.now();
+function frame(now){
+  const dtReal=Math.min(60,now-lastReal);lastReal=now;
+  if(S.running){
+    const dt=dtReal*S.speed;
+    S.t+=dt;
+    const cv=$("#mech");const w=cv._w||600,h=cv._h||300;const G=geom(w,h);
+    const vx=(G.gateX-6)/TRANSIT;
+
+    if(S.algo==="compare"){
+      // feed arrivals straight in, no particle transit
+      const before=particles.length;
+      generate(dt);
+      const added=particles.length-before;
+      particles.length=0;
+      for(let i=0;i<added;i++)stepCompare(S.t);
+      CL.leaky.drain(S.t);
+    }else{
+      generate(dt);
+      L.leaky.drain(S.t);
+      for(const p of particles){
+        if(p.state==="in"){
+          p.x=6+(S.t-p.born)*vx;p.y=G.laneY;
+          if(p.x>=G.gateX){p.x=G.gateX;decide(p,S.t);}
+        }else if(p.state==="ok"){
+          const from=(S.algo==="leaky")?G.bucket.x+G.bucket.w/2:G.gateX;
+          if(p.released){ // leaky: emerge from the spout
+            p.x=from+(S.t-p.released)*vx;p.y=G.outY;
+          }else{
+            p.x+=dt*vx;p.y+=(G.outY-p.y)*0.12;
+          }
+          if(p.x>w-6)p.a-=dt/400;
+        }else if(p.state==="rej"){
+          p.x+=dt*vx*(S.algo==="leaky"?0.75:0.35);p.y+=dt*0.12;p.a-=dt/1100;
+        }else if(p.state==="q"){
+          const q=L.leaky.queue(),idx=q.findIndex(e=>e.payload===p);
+          const b=G.bucket,depth=P.leaky.depth;
+          if(idx<0){p.state="ok";}
+          else{
+            const slotH=Math.min(11,(b.h-14)/Math.max(1,depth));
+            const tx=b.x+b.w/2+((idx%3)-1)*11;
+            const ty=b.y+b.h-8-idx*slotH*0.9;
+            p.x+=(tx-p.x)*0.14;p.y+=(Math.max(b.y+8,ty)-p.y)*0.14;
+          }
+        }
+      }
+      for(let i=particles.length-1;i>=0;i--){
+        const p=particles[i];
+        if(p.a<=0||p.y>h+20||p.x>w+30)particles.splice(i,1);
+      }
+    }
+  }
+
+  if(S.algo==="compare"){
+    ORDER.forEach(k=>{const cv=document.getElementById("cmp_"+k);if(cv)drawCmpRow(cv,k);});
+    updateCmpStats();
+  }else{
+    drawMech();drawChart();updateStats();
+  }
+  $("#clock").textContent="t = "+(S.t/1000).toFixed(1)+" s";
+  requestAnimationFrame(frame);
+}
+
+/* ------------------------------------------------------------------- UI */
+function updateStats(){
+  const pct=N.inc?Math.round(100*N.ok/N.inc):100;
+  const ok1=rateSeries(EV.ok,S.t,2000,250,8);
+  const cur=ok1.length?ok1[ok1.length-1]:0;
+  const cells=[
+    ["Offered",N.inc],
+    ["Admitted",N.ok+"  ("+pct+"%)"],
+    ["Rejected",N.rej],
+    S.algo==="leaky"
+      ? ["Mean wait in queue",(N.latN?Math.round(N.lat/N.latN):0)+" ms"]
+      : ["Admitted rate now",cur.toFixed(1)+" rps"]
+  ];
+  const box=$("#stats");
+  if(box.children.length!==4){box.innerHTML="";for(let i=0;i<4;i++)box.appendChild(ce("div","",'<span class="k"></span><span class="v mono"></span>'));}
+  cells.forEach((c,i)=>{
+    const d=box.children[i];
+    d.querySelector(".k").textContent=c[0];
+    d.querySelector(".v").textContent=c[1];
+  });
+}
+function updateCmpStats(){
+  ORDER.forEach(k=>{
+    const el=document.getElementById("cs_"+k);if(!el)return;
+    const okN=CE[k].ok.length,rejN=CE[k].rej.length,tot=CE.inc.length||1;
+    el.innerHTML='<b>'+Math.round(100*okN/tot)+'%</b>admitted, '+rejN+' dropped';
+  });
+}
+
+function sideFor(a){
+  if(a==="compare")return sideCompare();
+  const m=META[a];
+  const el=ce("div");
+  el.appendChild(ce("div","section",
+    "<h2>"+m.name+"</h2><p style='color:var(--muted);margin-bottom:12px'>"+m.tag+"</p>"+
+    m.how.map(x=>"<p>"+x+"</p>").join("")));
+
+  const ctrls=ce("div","section");
+  ctrls.appendChild(ce("h3","","Tune it"));
+  m.params.forEach(pd=>{
+    const c=ce("div","ctrl");
+    const id="p_"+a+"_"+pd.k;
+    c.innerHTML='<div class="row"><label for="'+id+'">'+pd.label+'</label>'+
+      '<span class="val mono" id="v_'+id+'"></span></div>'+
+      '<input id="'+id+'" type="range" min="'+pd.min+'" max="'+pd.max+'" step="'+pd.step+'" value="'+P[a][pd.k]+'">';
+    ctrls.appendChild(c);
+    setTimeout(()=>{
+      const inp=document.getElementById(id),out=document.getElementById("v_"+id);
+      const show=()=>out.textContent=(+inp.value)+pd.unit;
+      show();
+      inp.addEventListener("input",()=>{P[a][pd.k]=+inp.value;show();});
+    },0);
+  });
+  ctrls.appendChild(ce("p","",'<span style="font-size:12.5px;color:var(--muted)">'+m.tip+'</span>'));
+  el.appendChild(ctrls);
+
+  const v=ce("div","section");
+  v.innerHTML='<div class="verdict"><div><h3><span style="background:var(--ok)"></span>Strengths</h3><ul class="tight">'+
+    m.pros.map(x=>"<li>"+x+"</li>").join("")+'</ul></div><div><h3><span style="background:var(--rej)"></span>Costs</h3><ul class="tight">'+
+    m.cons.map(x=>"<li>"+x+"</li>").join("")+"</ul></div></div>";
+  el.appendChild(v);
+
+  const u=ce("div","section");
+  u.innerHTML="<h3>Where it is the right call</h3><ul class='tight'>"+m.uses.map(x=>"<li>"+x+"</li>").join("")+"</ul>";
+  el.appendChild(u);
+
+  const c2=ce("div","section");
+  c2.innerHTML="<h3>The decision, in code</h3><pre class='code'>"+m.code+"</pre>";
+  el.appendChild(c2);
+  return el;
+}
+function sideCompare(){
+  const el=ce("div");
+  el.appendChild(ce("div","section",
+    "<h2>All five, same stream</h2>"+
+    "<p style='color:var(--muted)'>Every algorithm sees the identical arrivals. One pair of knobs drives all of them so the comparison stays honest.</p>"+
+    "<p>Window algorithms get <em>limit per window</em> directly. The token bucket gets capacity = limit and refill = limit ÷ window. The leaky bucket gets queue depth = limit and leak = limit ÷ window. All five therefore permit the same long-run throughput and differ only in how they handle the shape of the traffic.</p>"));
+  const ctrls=ce("div","section");
+  ctrls.appendChild(ce("h3","","Shared budget"));
+  [{k:"limit",label:"Limit per window",min:1,max:60,step:1,unit:" req"},
+   {k:"window",label:"Window length",min:0.5,max:6,step:0.5,unit:" s"}].forEach(pd=>{
+    const id="c_"+pd.k,c=ce("div","ctrl");
+    c.innerHTML='<div class="row"><label for="'+id+'">'+pd.label+'</label><span class="val mono" id="v_'+id+'"></span></div>'+
+      '<input id="'+id+'" type="range" min="'+pd.min+'" max="'+pd.max+'" step="'+pd.step+'" value="'+P.compare[pd.k]+'">';
+    ctrls.appendChild(c);
+    setTimeout(()=>{
+      const inp=document.getElementById(id),out=document.getElementById("v_"+id);
+      const show=()=>out.textContent=(+inp.value)+pd.unit;show();
+      inp.addEventListener("input",()=>{P.compare[pd.k]=+inp.value;show();});
+    },0);
+  });
+  ctrls.appendChild(ce("p","",'<span style="font-size:12.5px;color:var(--muted)">Switch the traffic to Bursty: the fixed window lets a double-limit spike through, the leaky bucket flattens it completely, and the token bucket sits between the two.</span>'));
+  el.appendChild(ctrls);
+  el.appendChild(ce("div","section","<h3>What to look for</h3><ul class='tight'>"+
+    "<li>Fixed window: the admitted line jumps in steps and can briefly double the ceiling.</li>"+
+    "<li>Sliding log: admitted traffic hugs the ceiling with no overshoot at all.</li>"+
+    "<li>Sliding counter: close to the log, with small over- and under-shoots when traffic is uneven.</li>"+
+    "<li>Token bucket: a spike on arrival while the bucket drains, then a flat line at the refill rate.</li>"+
+    "<li>Leaky bucket: an almost perfectly flat line, paid for with queueing delay.</li></ul>"));
+  return el;
+}
+
+function selectAlgo(a){
+  S.algo=a;
+  [...$("#tabs").children].forEach(b=>b.setAttribute("aria-selected",String(b.dataset.a===a)));
+  const cmp=a==="compare";
+  $("#mechPanel").classList.toggle("hidden",cmp);
+  $("#chartPanel").classList.toggle("hidden",cmp);
+  $("#cmpPanel").classList.toggle("hidden",!cmp);
+  if(!cmp)$("#mechTitle").textContent=META[a].name;
+  const side=$("#side");side.innerHTML="";side.appendChild(sideFor(a));
+  resetRun();
+}
+
+function buildTabs(){
+  const t=$("#tabs");
+  ORDER.forEach(k=>{
+    const b=ce("button","",META[k].short);
+    b.dataset.a=k;b.setAttribute("role","tab");b.setAttribute("aria-selected","false");
+    b.onclick=()=>selectAlgo(k);t.appendChild(b);
+  });
+  const b=ce("button","","Compare all");
+  b.dataset.a="compare";b.setAttribute("role","tab");b.setAttribute("aria-selected","false");
+  b.onclick=()=>selectAlgo("compare");t.appendChild(b);
+}
+function buildCmpRows(){
+  const wrap=$("#cmpRows");wrap.innerHTML="";
+  ORDER.forEach(k=>{
+    const row=ce("div","cmprow");
+    row.innerHTML='<div class="nm">'+META[k].name+'<small>'+META[k].tag+'</small></div>'+
+      '<canvas id="cmp_'+k+'"></canvas>'+
+      '<div class="sc mono" id="cs_'+k+'"></div>';
+    wrap.appendChild(row);
+  });
+}
+
+$("#pattern").onchange=e=>{S.pattern=e.target.value;};
+$("#rate").oninput=e=>{S.rate=+e.target.value;$("#rateV").textContent=e.target.value+" rps";};
+$("#burst").onclick=()=>{S.injected+=Math.max(8,Math.round(S.rate*1.5));};
+$("#speed").onchange=e=>{S.speed=+e.target.value;};
+$("#reset").onclick=resetRun;
+$("#play").onclick=e=>{S.running=!S.running;e.target.textContent=S.running?"Pause":"Play";e.target.dataset.on=String(!S.running);};
+$("#play").textContent=S.running?"Pause":"Play";
+$("#play").dataset.on=String(!S.running);
+
+$("#foot").innerHTML="Every curve is a one-second moving average of real events from the simulation, not a drawn illustration. "+
+  "The two questions a limiter answers are how much traffic gets through and what shape it arrives in — the first is a contract, the second is what actually decides whether the backend survives.";
+
+buildTabs();buildCmpRows();buildLimiters();buildCompare();selectAlgo("fixed");
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

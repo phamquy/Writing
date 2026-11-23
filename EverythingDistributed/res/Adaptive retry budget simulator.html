@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adaptive retry budget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #E8ECEF; --panel: #F6F8F9; --ink: #17212B; --muted: #5B6773; --line: #CBD3D9; --grid: #D9DFE3;
+    --naive: #C2254A; --adapt: #0B7A85; --band: rgba(194,37,74,.10); --track: #DDE3E7;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0E1418; --panel: #151D23; --ink: #E6ECF0; --muted: #8C99A5; --line: #2A353E; --grid: #222D35;
+      --naive: #FF5C7D; --adapt: #3CC4CF; --band: rgba(255,92,125,.14); --track: #24303A;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0E1418; --panel: #151D23; --ink: #E6ECF0; --muted: #8C99A5; --line: #2A353E; --grid: #222D35;
+    --naive: #FF5C7D; --adapt: #3CC4CF; --band: rgba(255,92,125,.14); --track: #24303A;
+    color-scheme: dark;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 400 15px/1.5 "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 56px; }
+  h1 { font-size: clamp(28px, 4.5vw, 44px); line-height: 1.05; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 12px; }
+  h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  p { margin: 0; }
+  .lede { max-width: 66ch; color: var(--muted); font-size: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  section { margin-top: 20px; }
+
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px 22px; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .ctl output { color: var(--ink); font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--adapt); margin: 0; }
+  .group-title { grid-column: 1 / -1; font-weight: 600; font-size: 14px; padding-top: 4px; }
+  .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button {
+    font: inherit; font-size: 14px; font-weight: 600; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button.outage { border-color: var(--naive); color: var(--naive); }
+  button.outage[aria-pressed="true"] { background: var(--naive); color: var(--panel); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--adapt); outline-offset: 2px; }
+  .status { margin-left: auto; font-size: 13px; color: var(--muted); }
+
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .lane { border-left-width: 5px; }
+  .lane.naive { border-left-color: var(--naive); }
+  .lane.adapt { border-left-color: var(--adapt); }
+  .lane h2 { margin-bottom: 2px; }
+  .lane .sub { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  .nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .num b { display: block; font-size: clamp(24px, 3.4vw, 34px); line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; }
+  .num span { font-size: 12.5px; color: var(--muted); }
+
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .legend { display: flex; gap: 14px; font-size: 12.5px; color: var(--muted); }
+  .legend i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+  canvas { width: 100%; height: 230px; display: block; }
+  canvas.small { height: 210px; }
+
+  .inside { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; }
+  .state { display: grid; gap: 14px; align-content: start; }
+  .readouts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .gauge { height: 14px; background: var(--track); border-radius: 7px; overflow: hidden; margin-top: 6px; }
+  .gauge div { height: 100%; width: 0; background: var(--adapt); transition: width .1s linear; }
+  .gauge-label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .rule { font-size: 14px; color: var(--muted); }
+  .rule code { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .notes { color: var(--muted); font-size: 14px; max-width: 80ch; }
+  .notes p + p { margin-top: 8px; }
+  .notes strong { color: var(--ink); }
+
+  @media (max-width: 820px) {
+    .lanes, .charts, .inside { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 420px) {
+    .nums { grid-template-columns: 1fr 1fr 1fr; }
+    .status { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Adaptive retry budget</h1>
+  <p class="lede">Two clients call the same kind of downstream. One retries up to three times no matter what. The other spends from a retry budget that refills more slowly as the failure rate rises. Start an outage and watch how each one treats a struggling service.</p>
+
+  <section class="panel" aria-label="Simulation controls">
+    <div class="controls">
+      <div class="group-title">Traffic and downstream</div>
+      <div class="ctl"><label for="rate">Requests per second <output id="rateO"></output></label><input id="rate" type="range" min="20" max="200" step="5" value="110"></div>
+      <div class="ctl"><label for="cap">Downstream capacity (attempts/s) <output id="capO"></output></label><input id="cap" type="range" min="60" max="300" step="5" value="130"></div>
+      <div class="ctl"><label for="base">Baseline failure rate <output id="baseO"></output></label><input id="base" type="range" min="0" max="50" step="1" value="10"></div>
+
+      <div class="group-title">Budget policy</div>
+      <div class="ctl"><label for="rmax">r_max: retries per first attempt <output id="rmaxO"></output></label><input id="rmax" type="range" min="5" max="50" step="1" value="20"></div>
+      <div class="ctl"><label for="flo">f_lo: full budget below <output id="floO"></output></label><input id="flo" type="range" min="0" max="20" step="1" value="2"></div>
+      <div class="ctl"><label for="fhi">f_hi: minimum budget above <output id="fhiO"></output></label><input id="fhi" type="range" min="10" max="60" step="1" value="30"></div>
+
+      <div class="actions">
+        <button class="outage" id="outage" aria-pressed="false">Start 20 s outage (60% failures)</button>
+        <button id="pause">Pause</button>
+        <button id="speed">Speed 1×</button>
+        <button id="reset">Reset</button>
+        <span class="status" id="status" role="status"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="lanes" aria-label="Current results over the last 5 seconds">
+    <div class="panel lane naive">
+      <h2>Fixed retries</h2>
+      <p class="sub">Up to 3 attempts per request, always</p>
+      <div class="nums">
+        <div class="num"><b id="nSucc">–</b><span>requests succeed</span></div>
+        <div class="num"><b id="nAmp">–</b><span>attempts per request</span></div>
+        <div class="num"><b id="nLoad">–</b><span>attempts/s sent</span></div>
+      </div>
+    </div>
+    <div class="panel lane adapt">
+      <h2>Adaptive budget</h2>
+      <p class="sub">Token bucket, refill ratio r driven by failure rate</p>
+      <div class="nums">
+        <div class="num"><b id="aSucc">–</b><span>requests succeed</span></div>
+        <div class="num"><b id="aAmp">–</b><span>attempts per request</span></div>
+        <div class="num"><b id="aLoad">–</b><span>attempts/s sent</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="charts">
+    <div class="panel">
+      <div class="chart-head">
+        <h2>Load on the downstream</h2>
+        <div class="legend"><span><i style="background:var(--naive)"></i>Fixed</span><span><i style="background:var(--adapt)"></i>Adaptive</span></div>
+      </div>
+      <canvas id="cLoad" role="img" aria-label="Attempts per second sent to the downstream by each client over the last 60 seconds, against capacity"></canvas>
+    </div>
+    <div class="panel">
+      <div class="chart-head">
+        <h2>Requests that succeed</h2>
+        <div class="legend"><span><i style="background:var(--naive)"></i>Fixed</span><span><i style="background:var(--adapt)"></i>Adaptive</span></div>
+      </div>
+      <canvas id="cSucc" role="img" aria-label="Percentage of caller requests that succeeded over the last 60 seconds"></canvas>
+    </div>
+  </section>
+
+  <section class="inside">
+    <div class="panel">
+      <div class="chart-head"><h2>How r follows the failure rate</h2></div>
+      <canvas id="cCurve" class="small" role="img" aria-label="Refill ratio r as a function of observed failure rate, with the current operating point marked"></canvas>
+    </div>
+    <div class="panel state">
+      <h2>Adaptive client, right now</h2>
+      <div class="readouts">
+        <div class="num"><b id="rdF">–</b><span>observed failure rate f</span></div>
+        <div class="num"><b id="rdR">–</b><span>refill ratio r</span></div>
+        <div class="num"><b id="rdB">–</b><span>tokens in bucket</span></div>
+      </div>
+      <div>
+        <div class="gauge-label"><span>Retry bucket</span><span id="gaugeTxt"></span></div>
+        <div class="gauge" aria-hidden="true"><div id="gauge"></div></div>
+      </div>
+      <p class="rule" id="rule"></p>
+    </div>
+  </section>
+
+  <section class="panel notes">
+    <p><strong>Things to try.</strong> Start an outage with the defaults: the fixed client triples its traffic, pushes the downstream past capacity, and may stay broken after the outage ends, while the adaptive client drops to a trickle of retries and recovers. Then lower requests per second to give the fixed client room to recover, or raise r_max to see how a generous budget behaves.</p>
+    <p><strong>How the model works.</strong> Each client has its own simulated downstream. Failures come from the baseline rate plus overload: when attempts per second exceed capacity, the failure probability climbs steeply. Both clients are measured with the same traffic, and both cap out at 3 attempts per request. Backoff and jitter are left out so the effect of the budget stays visible.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var MAX_TOKENS = 20, R_MIN = 0.01, MAX_ATTEMPTS = 3, WINDOW = 60, OUTAGE_P = 0.6, OUTAGE_TICKS = 200, MIN_SAMPLES = 20;
+
+  var cfg = { rate: 110, cap: 130, base: 10, rmax: 20, flo: 2, fhi: 30 };
+  var S = null;
+  var running = true, speed = 1;
+
+  function newLane(adaptive) {
+    return { adaptive: adaptive, loadSm: 0, F: 0, A: 0, f: 0, r: cfg.rmax / 100, bucket: MAX_TOKENS / 2,
+             acc: { req: 0, succ: 0, att: 0 } };
+  }
+  function init() {
+    S = { naive: newLane(false), adapt: newLane(true), outageLeft: 0, arr: 0, tick: 0, hist: [] };
+    for (var i = 0; i < 200; i++) step();
+  }
+
+  function computeR(f) {
+    var rmax = cfg.rmax / 100, flo = cfg.flo / 100, fhi = cfg.fhi / 100;
+    if (f <= flo) return rmax;
+    if (f >= fhi) return R_MIN;
+    var v = rmax * (fhi - f) / (fhi - flo);
+    return Math.max(R_MIN, v);
+  }
+
+  function runLane(lane, n, inj) {
+    var rps = lane.loadSm * 10;
+    var pOver = rps > cfg.cap ? Math.min(1, 2 * (1 - cfg.cap / rps)) : 0;
+    var p = 1 - (1 - inj) * (1 - pOver);
+    if (lane.adaptive) lane.r = lane.A < MIN_SAMPLES ? cfg.rmax / 100 : computeR(lane.f);
+    var att = 0, fails = 0, succ = 0;
+    for (var i = 0; i < n; i++) {
+      if (lane.adaptive) lane.bucket = Math.min(MAX_TOKENS, lane.bucket + lane.r);
+      var a = 1; att++;
+      var fail = Math.random() < p;
+      if (fail) fails++;
+      while (fail && a < MAX_ATTEMPTS) {
+        if (lane.adaptive) { if (lane.bucket < 1) break; lane.bucket -= 1; }
+        a++; att++;
+        fail = Math.random() < p;
+        if (fail) fails++;
+      }
+      if (!fail) succ++;
+    }
+    lane.loadSm = 0.5 * lane.loadSm + 0.5 * att;
+    lane.F = lane.F * 0.95 + fails;
+    lane.A = lane.A * 0.95 + att;
+    lane.f = lane.A > 0 ? lane.F / lane.A : 0;
+    lane.acc.req += n; lane.acc.succ += succ; lane.acc.att += att;
+  }
+
+  function step() {
+    S.arr += cfg.rate / 10;
+    var n = Math.floor(S.arr); S.arr -= n;
+    var inj = S.outageLeft > 0 ? OUTAGE_P : cfg.base / 100;
+    var wasOutage = S.outageLeft > 0;
+    runLane(S.naive, n, inj);
+    runLane(S.adapt, n, inj);
+    if (S.outageLeft > 0) S.outageLeft--;
+    S.tick++;
+    S.outageSeen = S.outageSeen || wasOutage;
+    if (S.tick % 10 === 0) {
+      var nv = S.naive.acc, av = S.adapt.acc;
+      S.hist.push({
+        nLoad: nv.att, aLoad: av.att,
+        nReq: nv.req, aReq: av.req, nSucc: nv.succ, aSucc: av.succ,
+        outage: S.outageSeen, f: S.adapt.f, r: S.adapt.r, bucket: S.adapt.bucket
+      });
+      if (S.hist.length > WINDOW) S.hist.shift();
+      S.naive.acc = { req: 0, succ: 0, att: 0 };
+      S.adapt.acc = { req: 0, succ: 0, att: 0 };
+      S.outageSeen = false;
+      return true;
+    }
+    return false;
+  }
+
+  /* ---------- drawing ---------- */
+  function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+  var FONT = '11.5px "Schibsted Grotesk", system-ui, sans-serif';
+
+  function prep(canvas) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    }
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = FONT;
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  function niceMax(v) {
+    var steps = [10, 20, 25, 50, 100, 200, 250, 300, 400, 500, 600, 800, 1000, 1500, 2000];
+    for (var i = 0; i < steps.length; i++) if (v <= steps[i]) return steps[i];
+    return Math.ceil(v / 500) * 500;
+  }
+
+  function timeChart(canvas, series, ymax, fmt, capLine) {
+    var c = prep(canvas), ctx = c.ctx, w = c.w, h = c.h;
+    var L = 40, R = 10, T = 8, B = 22, pw = w - L - R, ph = h - T - B;
+    var grid = css("--grid"), muted = css("--muted"), band = css("--band");
+    var xs = function (slot) { return L + pw * slot / (WINDOW - 1); };
+    var ys = function (v) { return T + ph * (1 - Math.min(v, ymax) / ymax); };
+    var len = S.hist.length, off = WINDOW - len;
+
+    ctx.fillStyle = band;
+    S.hist.forEach(function (hp, i) {
+      if (hp.outage) ctx.fillRect(xs(off + i) - pw / (WINDOW - 1) / 2, T, pw / (WINDOW - 1), ph);
+    });
+
+    ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.lineWidth = 1;
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (var g = 0; g <= 4; g++) {
+      var v = ymax * g / 4, y = ys(v);
+      ctx.beginPath(); ctx.moveTo(L, y + .5); ctx.lineTo(L + pw, y + .5); ctx.stroke();
+      ctx.fillText(fmt(v), L - 6, y);
+    }
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left"; ctx.fillText("60 s ago", L, h - B + 6);
+    ctx.textAlign = "center"; ctx.fillText("30 s", L + pw / 2, h - B + 6);
+    ctx.textAlign = "right"; ctx.fillText("now", L + pw, h - B + 6);
+
+    if (capLine != null) {
+      ctx.strokeStyle = muted; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+      var cy = ys(capLine);
+      ctx.beginPath(); ctx.moveTo(L, cy); ctx.lineTo(L + pw, cy); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = muted; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+      ctx.fillText("capacity", L + 4, cy - 3);
+    }
+
+    series.forEach(function (s) {
+      if (!s.data.length) return;
+      ctx.strokeStyle = s.color; ctx.lineWidth = 2.5; ctx.lineJoin = "round";
+      ctx.beginPath();
+      s.data.forEach(function (v, i) {
+        var x = xs(off + i), y = ys(v);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    });
+  }
+
+  function curveChart(canvas) {
+    var c = prep(canvas), ctx = c.ctx, w = c.w, h = c.h;
+    var L = 44, R = 14, T = 12, B = 28, pw = w - L - R, ph = h - T - B;
+    var grid = css("--grid"), muted = css("--muted"), col = css("--adapt"), ink = css("--ink");
+    var XMAX = 0.6, rmax = cfg.rmax / 100, ymax = rmax * 1.15;
+    var xs = function (f) { return L + pw * Math.min(f, XMAX) / XMAX; };
+    var ys = function (r) { return T + ph * (1 - r / ymax); };
+
+    ctx.strokeStyle = grid; ctx.fillStyle = muted; ctx.lineWidth = 1;
+    ctx.textBaseline = "middle"; ctx.textAlign = "right";
+    for (var g = 0; g <= 4; g++) {
+      var v = ymax * g / 4, y = ys(v);
+      ctx.beginPath(); ctx.moveTo(L, y + .5); ctx.lineTo(L + pw, y + .5); ctx.stroke();
+      ctx.fillText((v * 100).toFixed(0) + "%", L - 6, y);
+    }
+    ctx.textBaseline = "top"; ctx.textAlign = "center";
+    [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6].forEach(function (f) { ctx.fillText((f * 100).toFixed(0) + "%", xs(f), h - B + 6); });
+    ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+    ctx.fillText("observed failure rate f", L, h - 1);
+    ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.fillText("refill ratio r", 0, -4); ctx.restore();
+
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.beginPath();
+    for (var i = 0; i <= 120; i++) {
+      var f = XMAX * i / 120, x = xs(f), yy = ys(computeR(f));
+      if (i === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+
+    var A = S.adapt, px = xs(A.f), py = ys(A.r);
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = muted; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, T); ctx.lineTo(px, T + ph); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css("--panel"); ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  }
+
+  function pct(a, b) { return b > 0 ? (100 * a / b) : 100; }
+  function sum(arr, k) { return arr.reduce(function (t, x) { return t + x[k]; }, 0); }
+
+  function render() {
+    var H = S.hist, last = H.slice(-5);
+    var nReq = sum(last, "nReq"), aReq = sum(last, "aReq");
+    $("nSucc").textContent = pct(sum(last, "nSucc"), nReq).toFixed(0) + "%";
+    $("aSucc").textContent = pct(sum(last, "aSucc"), aReq).toFixed(0) + "%";
+    $("nAmp").textContent = (nReq ? sum(last, "nLoad") / nReq : 1).toFixed(2) + "×";
+    $("aAmp").textContent = (aReq ? sum(last, "aLoad") / aReq : 1).toFixed(2) + "×";
+    $("nLoad").textContent = Math.round(last.length ? sum(last, "nLoad") / last.length : 0);
+    $("aLoad").textContent = Math.round(last.length ? sum(last, "aLoad") / last.length : 0);
+
+    var A = S.adapt;
+    $("rdF").textContent = (A.f * 100).toFixed(0) + "%";
+    $("rdR").textContent = (A.r * 100).toFixed(1) + "%";
+    $("rdB").textContent = A.bucket.toFixed(1);
+    $("gauge").style.width = (100 * A.bucket / MAX_TOKENS) + "%";
+    $("gaugeTxt").textContent = A.bucket.toFixed(1) + " / " + MAX_TOKENS;
+
+    var maxData = Math.max.apply(null, [cfg.cap].concat(H.map(function (x) { return Math.max(x.nLoad, x.aLoad); })));
+    var ymax = niceMax(maxData * 1.1);
+    timeChart($("cLoad"), [
+      { data: H.map(function (x) { return x.nLoad; }), color: css("--naive") },
+      { data: H.map(function (x) { return x.aLoad; }), color: css("--adapt") }
+    ], ymax, function (v) { return Math.round(v); }, cfg.cap);
+    timeChart($("cSucc"), [
+      { data: H.map(function (x) { return pct(x.nSucc, x.nReq); }), color: css("--naive") },
+      { data: H.map(function (x) { return pct(x.aSucc, x.aReq); }), color: css("--adapt") }
+    ], 100, function (v) { return Math.round(v) + "%"; }, null);
+    curveChart($("cCurve"));
+
+    var st = S.outageLeft > 0 ? "Outage: " + Math.ceil(S.outageLeft / 10) + " s left" : (running ? "Running" : "Paused");
+    $("status").textContent = st;
+    $("outage").setAttribute("aria-pressed", S.outageLeft > 0 ? "true" : "false");
+  }
+
+  function ruleText() {
+    $("rule").innerHTML = "Each first attempt adds <code>r</code> tokens, each retry costs 1. " +
+      "<code>r</code> is " + cfg.rmax + "% while f ≤ " + cfg.flo + "%, falls linearly to 1% at f = " + cfg.fhi +
+      "%, and stays there beyond it. The bucket holds at most " + MAX_TOKENS + " tokens.";
+  }
+
+  /* ---------- controls ---------- */
+  function bind(id, key, fmt) {
+    var el = $(id), out = $(id + "O");
+    function apply() {
+      cfg[key] = Number(el.value);
+      if (key === "flo" && cfg.flo >= cfg.fhi - 4) { cfg.fhi = cfg.flo + 5; $("fhi").value = cfg.fhi; $("fhiO").textContent = fmt.fhi(cfg.fhi); }
+      if (key === "fhi" && cfg.fhi <= cfg.flo + 4) { cfg.flo = Math.max(0, cfg.fhi - 5); $("flo").value = cfg.flo; $("floO").textContent = fmt.flo(cfg.flo); }
+      out.textContent = fmt[id](cfg[key]);
+      ruleText(); render();
+    }
+    el.addEventListener("input", apply);
+    out.textContent = fmt[id](cfg[key]);
+  }
+  var P = function (v) { return v + "%"; };
+  var fmt = { rate: function (v) { return v; }, cap: function (v) { return v; }, base: P, rmax: P, flo: P, fhi: P };
+  bind("rate", "rate", fmt); bind("cap", "cap", fmt); bind("base", "base", fmt);
+  bind("rmax", "rmax", fmt); bind("flo", "flo", fmt); bind("fhi", "fhi", fmt);
+
+  $("outage").addEventListener("click", function () { S.outageLeft = S.outageLeft > 0 ? 0 : OUTAGE_TICKS; render(); });
+  $("pause").addEventListener("click", function () { running = !running; this.textContent = running ? "Pause" : "Resume"; render(); });
+  $("speed").addEventListener("click", function () { speed = speed === 1 ? 4 : 1; this.textContent = "Speed " + speed + "×"; });
+  $("reset").addEventListener("click", function () { init(); render(); });
+
+  setInterval(function () {
+    if (!running) return;
+    var pushed = false;
+    for (var i = 0; i < speed; i++) if (step()) pushed = true;
+    if (pushed || speed > 1 || S.outageLeft > 0) render();
+    else { // keep live readouts smooth between seconds
+      $("rdF").textContent = (S.adapt.f * 100).toFixed(0) + "%";
+      $("rdR").textContent = (S.adapt.r * 100).toFixed(1) + "%";
+      $("rdB").textContent = S.adapt.bucket.toFixed(1);
+      $("gauge").style.width = (100 * S.adapt.bucket / MAX_TOKENS) + "%";
+      $("gaugeTxt").textContent = S.adapt.bucket.toFixed(1) + " / " + MAX_TOKENS;
+    }
+  }, 100);
+
+  window.addEventListener("resize", render);
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    if (mq.addEventListener) mq.addEventListener("change", render);
+  }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+
+  init(); ruleText(); render();
+})();
+</script>
+</body>
+</html>

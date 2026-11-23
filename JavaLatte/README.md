@@ -1,7 +1,6 @@
 ---
 icon: face-thinking
 ---
-
 # Lock's Condition — What actually happene ?
 
 ### 1. What is a Condition?
@@ -18,7 +17,7 @@ condition.signalAll();  // wake ALL threads waiting on this condition
 
 `await()` **atomically** releases the lock and suspends. When it wakes up, it re-acquires the lock before returning.
 
-***
+---
 
 ### 2. Classic Example — Bounded Buffer (Producer / Consumer)
 
@@ -75,7 +74,7 @@ if (queue.isEmpty()) condition.await();
 while (queue.isEmpty()) condition.await();
 ```
 
-***
+---
 
 ### 3. `await` variants
 
@@ -86,7 +85,7 @@ condition.awaitUninterruptibly();         // ignore Thread.interrupt() while wai
 condition.awaitUntil(new Date(...));      // wait until a specific wall-clock time
 ```
 
-***
+---
 
 ### 4. Why Condition must come from a lock
 
@@ -110,7 +109,7 @@ Calling `await()` without holding the lock throws `IllegalMonitorStateException`
 
 `Condition` is an interface — the real implementation is `ConditionObject`, a private inner class inside `AbstractQueuedSynchronizer` (AQS). It is intentionally package-private and not directly accessible.
 
-***
+---
 
 ### 5. How timed `await(2, TimeUnit.SECONDS)` works
 
@@ -140,20 +139,20 @@ await() returns false (timed out) or true (signalled before timeout)
 
 The OS kernel — driven by a hardware timer interrupt — is what guarantees the wakeup. The sleeping thread never wakes itself.
 
-***
+---
 
 ### 6. `awaitUninterruptibly()` vs Ctrl-C
 
 These are **two completely separate mechanisms**:
 
-|                          | `Thread.interrupt()`              | Ctrl-C / SIGINT         |
-| ------------------------ | --------------------------------- | ----------------------- |
-| Level                    | Java thread                       | OS process              |
-| What it does             | sets a flag on one thread         | kills the entire JVM    |
-| `await()`                | throws `InterruptedException`     | thread dies immediately |
-| `awaitUninterruptibly()` | **ignored**, keeps waiting        | thread dies immediately |
-| Can be caught?           | yes, catch `InterruptedException` | only via shutdown hook  |
-| Affects                  | one thread                        | all threads             |
+|                            | `Thread.interrupt()`             | Ctrl-C / SIGINT         |
+| -------------------------- | ---------------------------------- | ----------------------- |
+| Level                      | Java thread                        | OS process              |
+| What it does               | sets a flag on one thread          | kills the entire JVM    |
+| `await()`                | throws`InterruptedException`     | thread dies immediately |
+| `awaitUninterruptibly()` | **ignored**, keeps waiting   | thread dies immediately |
+| Can be caught?             | yes, catch`InterruptedException` | only via shutdown hook  |
+| Affects                    | one thread                         | all threads             |
 
 `awaitUninterruptibly()` only blocks `Thread.interrupt()` — programmatic Java-level interrupts. It has no effect on Ctrl-C or `SIGKILL`.
 
@@ -174,7 +173,7 @@ if (interrupted) {
 }
 ```
 
-***
+---
 
 ### 7. What is CAS?
 
@@ -198,7 +197,7 @@ AQS uses it to acquire the lock:
 compareAndSet(0, 1)  // "if state is 0 (free), set it to 1 (taken)"
 ```
 
-***
+---
 
 ### 8. Full stack — from Condition down to the OS
 
@@ -220,13 +219,13 @@ OS primitive                       ← actual thread suspension
 
 On each platform the OS primitive differs:
 
-| OS      | Primitive                                          |
-| ------- | -------------------------------------------------- |
+| OS      | Primitive                                              |
+| ------- | ------------------------------------------------------ |
 | Linux   | `pthread_mutex` + `pthread_cond_wait`              |
-| macOS   | `pthread_cond_wait`                                |
+| macOS   | `pthread_cond_wait`                                  |
 | Windows | `WaitForSingleObject` / `SleepConditionVariableCS` |
 
-***
+---
 
 ### 9. How multiple Java Conditions map to one OS primitive
 
@@ -251,7 +250,7 @@ When `signal()` is called, AQS picks a thread off the Java queue, then calls `Lo
 
 **Java owns: which thread should wake up (routing)** **OS owns: how to suspend and resume threads (scheduling)**
 
-***
+---
 
 ### 10. Why the OS needs a condvar at all (not just a mutex)
 
@@ -279,12 +278,12 @@ pthread_cond_wait(&cond, &mutex);
 
 Without atomicity, a signal fired between unlock and sleep is permanently missed and the thread sleeps forever.
 
-| Primitive | Solves                                                               |
-| --------- | -------------------------------------------------------------------- |
+| Primitive | Solves                                                                |
+| --------- | --------------------------------------------------------------------- |
 | Mutex     | mutual exclusion — one thread in critical section at a time          |
 | Condvar   | atomic unlock + sleep — wait for a condition without missing signals |
 
-***
+---
 
 ### 11. Two queues, two levels
 
@@ -301,11 +300,11 @@ OS level (kernel memory)
 pthread_cond_t  →  [OS thread 2] → [OS thread 3]
 ```
 
-|            | AQS queue (Java)                       | Kernel queue (OS)            |
-| ---------- | -------------------------------------- | ---------------------------- |
-| Lives in   | Java heap                              | Kernel memory                |
-| Tracks     | which Condition a thread is waiting on | which threads are suspended  |
-| Decides    | **who** to wake (routing)              | **how** to wake (scheduling) |
-| Managed by | AQS / JVM                              | OS scheduler                 |
+|            | AQS queue (Java)                       | Kernel queue (OS)                  |
+| ---------- | -------------------------------------- | ---------------------------------- |
+| Lives in   | Java heap                              | Kernel memory                      |
+| Tracks     | which Condition a thread is waiting on | which threads are suspended        |
+| Decides    | **who** to wake (routing)        | **how** to wake (scheduling) |
+| Managed by | AQS / JVM                              | OS scheduler                       |
 
 Java conditions are numerous and cheap because they are just heap linked lists. The expensive part — actual thread suspension — is handled by the kernel's single per-thread parker.
