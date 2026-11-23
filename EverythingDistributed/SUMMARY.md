@@ -9,6 +9,7 @@
 * [Schema Evolution in Distributed Systems](schema-evolution-in-distributed-systems.md)
 * [The Power of Total Order: Achieving Consistency Levels with a Global Log](the-power-of-total-order-achieving-consistency-levels-with-a-global-log.md)
 * [The Power of Total Order: Delivery Semantics](the-power-of-total-order-delivery-semantics.md)
+* [Adaptive retry budget](adaptive-retry-budget.md)
 
 ## Case Study
 
