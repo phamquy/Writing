@@ -1,6 +1,6 @@
 # Table of contents
 
-* [Classic distributed algorithm & TLA+](README.md)
+* [Classic distributed algorithm &amp; TLA+](README.md)
 * [Stability and Metastable Failure](stability-and-metastable-failure.md)
 * [Distributed System Consistency: A Comprehensive Primer](distributed-system-consistency-a-comprehensive-primer.md)
 * [Linearizability vs Serializability vs Total Order](linearizability-vs-serializability-vs-total-order.md)
@@ -20,7 +20,3 @@
 * [An attribution engine in an RTB (real-time bidding) system](case-study/an-attribution-engine-in-an-rtb-real-time-bidding-system.md)
 * [Click-Log Stream Processing for an Ads Platform](case-study/click-log-stream-processing-for-an-ads-platform.md)
 * [Real-time Bidding System (RTB)](case-study/real-time-bidding-system-rtb.md)
-
-***
-
-* [Adaptive retry budget](adaptive-retry-budget-1.md)
