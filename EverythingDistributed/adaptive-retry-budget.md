@@ -45,7 +45,7 @@ The cost is deliberate and worth stating. During a brief blip, some retries that
 
 The simulator below runs the naive and adaptive policies side by side so the difference in load on the downstream can be seen directly. If it does not appear, the viewer does not allow embedded pages
 
-<iframe src="https://github.com/phamquy/Writing/blob/master/EverythingDistributed/res/Adaptive%20retry%20budget%20simulator.html" title="Adaptive retry budget simulator" width="100%" height="760" style="border:1px solid #CBD3D9;border-radius:8px;"></iframe>
+<iframe src="https://jade-torte-0a87b5.netlify.app" title="Adaptive retry budget simulator" width="100%" height="760"></iframe>
 
 ## What it needs around it
 
